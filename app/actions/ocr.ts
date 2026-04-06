@@ -11,13 +11,13 @@ export interface ParsedItem {
 const PROMPT = `You are a receipt parser. Analyze this receipt image and extract ALL purchased items.
 
 Return ONLY a valid JSON array with this exact format, no markdown, no explanation:
-[{"name":"Item Name","price":12000,"quantity":1},{"name":"Another Item","price":25000,"quantity":2}]
+[{"name":"Item Name","price":7273,"quantity":3},{"name":"Another Item","price":25000,"quantity":1}]
 
 Rules:
 - Extract ONLY individual purchased items (food/beverage/product lines)
 - SKIP: Total, Subtotal, Tax/Pajak/PB1, Service Charge, Discount, Rounding, Payment method lines, ITEMS count lines
-- price must be an integer in IDR (e.g. if receipt shows "38,000" or "38.000" return 38000)
-- quantity is the number of units ordered (default 1 if not shown)
+- "price" must be the UNIT price per single item (= line total ÷ quantity). Example: if receipt shows qty 3, line total 21,819 → price = 7273
+- "quantity" is the number of units ordered (default 1 if not shown)
 - name should be clean Title Case, combine multi-line item names into one
 - If an item has sub-items (like a bundle), list parent item only`;
 

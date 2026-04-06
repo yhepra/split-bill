@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useCallback, useRef, useState } from "react";
 import { Camera, Upload, Image as ImageIcon, X, RefreshCw } from "lucide-react";
@@ -92,12 +92,11 @@ export function UploadZone({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       className={cn(
-        "relative flex flex-col items-center justify-center w-full min-h-[280px] rounded-xl border-2 border-dashed transition-all duration-300 cursor-pointer",
+        "relative flex flex-col items-center justify-center w-full min-h-[280px] rounded-xl border-2 border-dashed transition-all duration-300",
         isDragging
           ? "border-primary bg-accent/30 scale-[1.01]"
           : "border-border hover:border-primary/50 hover:bg-accent/10 bg-secondary/30"
       )}
-      onClick={() => fileInputRef.current?.click()}
     >
       {/* Hidden desktop file input */}
       <input
@@ -128,34 +127,35 @@ export function UploadZone({
         id="file-input-gallery"
       />
 
-      <div className="flex flex-col items-center gap-4 p-6 text-center pointer-events-none select-none">
+      {/* Desktop: label \u2014 one click opens exactly one dialog */}
+      <label htmlFor="file-input-desktop" className="hidden md:flex flex-col items-center gap-4 p-6 text-center cursor-pointer w-full">
         <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center shadow-lg">
           <ImageIcon className="w-8 h-8 text-white" />
         </div>
         <div>
           <p className="font-semibold text-foreground mb-1">Upload Foto Struk</p>
-          <p className="text-sm text-muted-foreground hidden md:block">
-            Drag & drop atau klik untuk pilih file
-          </p>
-          <p className="text-sm text-muted-foreground md:hidden">
-            Pilih sumber foto di bawah
-          </p>
+          <p className="text-sm text-muted-foreground">Drag & drop atau klik untuk pilih file</p>
+        </div>
+        <p className="text-xs text-muted-foreground">Mendukung JPG, PNG, WEBP, HEIC</p>
+      </label>
+      {/* Mobile: display only, no click \u2014 buttons below handle upload */}
+      <div className="md:hidden flex flex-col items-center gap-4 p-6 text-center pointer-events-none select-none">
+        <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center shadow-lg">
+          <ImageIcon className="w-8 h-8 text-white" />
+        </div>
+        <div>
+          <p className="font-semibold text-foreground mb-1">Upload Foto Struk</p>
+          <p className="text-sm text-muted-foreground">Pilih sumber foto di bawah</p>
         </div>
         <p className="text-xs text-muted-foreground">Mendukung JPG, PNG, WEBP, HEIC</p>
       </div>
 
-      {/* Mobile action buttons */}
-      <div
-        className="flex gap-3 md:hidden pointer-events-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* Mobile action buttons — pointer-events-auto so they receive clicks */}
+      <div className="flex gap-3 md:hidden pointer-events-auto">
         <Button
           size="lg"
           className="flex-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            cameraInputRef.current?.click();
-          }}
+          onClick={() => cameraInputRef.current?.click()}
           id="btn-camera"
         >
           <Camera className="w-5 h-5 mr-2" />
@@ -165,10 +165,7 @@ export function UploadZone({
           variant="outline"
           size="lg"
           className="flex-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            galleryInputRef.current?.click();
-          }}
+          onClick={() => galleryInputRef.current?.click()}
           id="btn-gallery"
         >
           <Upload className="w-5 h-5 mr-2" />
@@ -185,3 +182,4 @@ export function UploadZone({
     </div>
   );
 }
+
