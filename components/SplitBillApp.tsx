@@ -62,28 +62,42 @@ function reducer(state: BillState, action: Action): BillState {
 export function SplitBillApp() {
   const [state, dispatch] = useReducer(reducer, initialState);
 
+  // Compress image client-side to stay within Next.js Server Action size limits
+  const compressImage = (file: File, maxDim = 1600, quality = 0.85): Promise<{ base64: string; mimeType: string }> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round((height / width) * maxDim); width = maxDim; }
+          else { width = Math.round((width / height) * maxDim); height = maxDim; }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve({ base64: dataUrl.split(",")[1], mimeType: "image/jpeg" });
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+
   const handleFileSelected = useCallback(async (file: File) => {
     const url = URL.createObjectURL(file);
     dispatch({ type: "SET_IMAGE", payload: url });
     dispatch({ type: "SET_OCR_PROCESSING", payload: true });
-    dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 10, status: "Membaca gambar..." } });
+    dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 10, status: "Mengoptimalkan gambar..." } });
 
     try {
-      // Convert file to base64 for Gemini
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          // Strip the data:image/...;base64, prefix
-          resolve(result.split(",")[1]);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // Compress to max 1600px before sending to Gemini Server Action
+      const { base64, mimeType } = await compressImage(file);
 
-      dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 40, status: "AI sedang menganalisis struk..." } });
+      dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 35, status: "AI sedang menganalisis struk..." } });
 
-      const parsed = await parseReceiptWithGemini(base64, file.type || "image/jpeg");
+      const parsed = await parseReceiptWithGemini(base64, mimeType);
 
       dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 90, status: "Memproses hasil..." } });
 
