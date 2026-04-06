@@ -16,10 +16,6 @@ export interface OCRResult {
 
 type ProgressCallback = (event: OCRProgressEvent) => void;
 
-// Whitelist: alphanumeric + common receipt characters
-// Keeps letters (for item names), digits + punctuation (for prices)
-const RECEIPT_CHAR_WHITELIST =
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,/:- @";
 
 /**
  * OCRService: client-side receipt text extraction using Tesseract.js
@@ -75,10 +71,8 @@ export class OCRService {
         },
       });
 
-      // Apply character whitelist to improve price reading accuracy
-      await worker.setParameters({
-        tessedit_char_whitelist: RECEIPT_CHAR_WHITELIST,
-      });
+      // Removed character whitelist because it degrades language model matching
+      // Default ind+eng dictionary works much better for item names.
 
       this.workerInstance = worker;
       this.isInitializing = false;

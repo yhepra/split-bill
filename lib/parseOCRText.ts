@@ -9,19 +9,14 @@ export function parseOCRText(rawText: string): BillItem[] {
   const lines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
   const items: BillItem[] = [];
 
-  // Patterns for prices: handles formats like 15.000, 15,000, 15000, Rp15.000, 15.000,00
-  const pricePattern = /(?:rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+)/gi;
-
-  // Keywords to skip (headers, totals, etc.)
+  // Keywords to skip (headers, totals, payment methods, noise)
   const skipKeywords = [
-    /^total/i, /^subtotal/i, /^grand/i, /^bayar/i, /^tunai/i,
-    /^kembalian/i, /^change/i, /^cash/i, /^payment/i, /^ppn/i,
-    /^tax/i, /^pajak/i, /^service/i, /^disc/i, /^diskon/i,
-    /^struk/i, /^receipt/i, /^invoice/i, /^nota/i, /^kwitansi/i,
-    /^no\./i, /^tanggal/i, /^date/i, /^kasir/i, /^cashier/i,
-    /^table/i, /^meja/i, /^\*+/, /^-+/, /^=+/, /^thank/i,
-    /^terima/i, /^selamat/i, /^welcome/i, /^\d{4}-\d{2}-\d{2}/,
-    /^\d{2}\/\d{2}\/\d{4}/, /^\d{2}:\d{2}/, /^jam/i, /^time/i,
+    /^(?:total|subtotal|grand|bayar|tunai|kembalian|change|cash|payment|ppn|tax|pajak|service|disc|diskon|discount|promo|voucher)/i,
+    /^(?:struk|receipt|invoice|nota|kwitansi|no\.|no :|tanggal|date|kasir|cashier|table|meja|items?|before|rounding|pembulatan)/i,
+    /^(?:debit|kredit|credit|qris|ovo|gopay|dana|shopeepay|mandiri|bca|bni|bri)/i,
+    /^\*+/, /^-+/, /^=+/, /^thank/i, /^terima/i, /^selamat/i, /^welcome/i,
+    /^\d{4}-\d{2}-\d{2}/, /^\d{2}\/\d{2}\/\d{4}/, /^\d{2}:\d{2}/, /^jam/i, /^time/i,
+    /^order/i, /^scan/i, /^http/i, /^www/i, /^@/i, /^phone/i, /^telp/i, /^wa /i,
   ];
 
   for (const line of lines) {
@@ -32,48 +27,72 @@ export function parseOCRText(rawText: string): BillItem[] {
     if (line.length < 3) continue;
 
     // Find all price-like numbers in the line
-    const allNumbers: number[] = [];
+    // Matches like "Rp 15.000", "15,000", "51,819", "38.000,00"
+    const numbers: { raw: string; value: number }[] = [];
     let match;
-    const tempPattern = /(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d{4,})/g;
-    while ((match = tempPattern.exec(line)) !== null) {
-      const numStr = match[1].replace(/\./g, "").replace(",", ".");
-      const num = parseFloat(numStr);
-      if (num > 0) allNumbers.push(num);
+    const pricePattern = /(?:\b(?:Rp|IDR)\.?\s*)?(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{4,}|\d{1,3})/gi;
+    
+    while ((match = pricePattern.exec(line)) !== null) {
+      const raw = match[0];
+      let numStr = match[1];
+      
+      // If the number ends with ,00 or .00 (cents), strip it off first 
+      // (Common in IDR receipts to show cents, e.g. 15.000,00)
+      if (/[.,]\d{2}$/.test(numStr)) {
+        numStr = numStr.replace(/[.,]\d{2}$/, "");
+      }
+      
+      // Now strip all non-digit characters so "15.000" or "15,000" becomes "15000"
+      numStr = numStr.replace(/[^0-9]/g, "");
+      
+      const num = parseInt(numStr, 10);
+      // In IDR, genuine prices are typically >= 500. 
+      // This helps ignore quantities like '1' or '2' that might get matched as tiny prices.
+      if (num >= 500) {
+        numbers.push({ raw, value: num });
+      }
     }
 
-    if (allNumbers.length === 0) continue;
+    if (numbers.length === 0) continue;
 
-    // The price is typically the largest number or the last number on the line
-    const price = Math.max(...allNumbers);
+    // The price is usually the absolute largest valid number on the line
+    const priceObj = numbers.reduce((max, curr) => (curr.value > max.value ? curr : max), numbers[0]);
+    const price = priceObj.value;
 
-    // Skip if price is too small (< 100) or looks like a count/quantity only
-    if (price < 100) continue;
-
-    // Extract item name: remove price patterns and quantity prefixes
+    // Extract item name: remove the raw price string from the line
     let name = line;
+    const lastIdx = name.lastIndexOf(priceObj.raw);
+    if (lastIdx !== -1) {
+      name = name.substring(0, lastIdx) + name.substring(lastIdx + priceObj.raw.length);
+    } else {
+      name = name.replace(priceObj.raw, "");
+    }
 
-    // Remove price patterns
-    name = name.replace(/(?:rp\.?\s*)?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?/gi, "").trim();
+    // Attempt to extract quantity (e.g. "2x Kopi", "Kopi 2x", or just isolated "2" at boundaries)
+    let quantity = 1;
+    
+    // Check at start: e.g. "2x Kopi" or "2 Kopi"
+    const startQtyMatch = name.match(/^(\d+)\s*[xX]?\s+/);
+    if (startQtyMatch) {
+      quantity = parseInt(startQtyMatch[1], 10) || 1;
+      name = name.substring(startQtyMatch[0].length);
+    } else {
+      // Check at end: e.g. "Kopi x2" or "Kopi 2"
+      const endQtyMatch = name.match(/\s+[xX]?\s*(\d+)\s*[xX]?$/);
+      if (endQtyMatch) {
+        quantity = parseInt(endQtyMatch[1], 10) || 1;
+        name = name.substring(0, name.length - endQtyMatch[0].length);
+      }
+    }
 
-    // Remove common prefixes like "1x", "2 x", quantity indicators
-    name = name.replace(/^\d+\s*[xX]\s*/g, "").trim();
-    name = name.replace(/^[xX]\s*/g, "").trim();
+    // Clean up trailing/leading punctuation
+    name = name.replace(/^[\s\-\.\*\|:,+]+|[\s\-\.\*\|:,+]+$/g, "").trim();
 
-    // Remove trailing/leading punctuation
-    name = name.replace(/^[\s\-\.\*\|:]+|[\s\-\.\*\|:]+$/g, "").trim();
-
-    // Skip if name is empty or too short after cleaning
+    // Skip if name is empty or too short
     if (!name || name.length < 2) continue;
 
     // Skip if name is just numbers
     if (/^\d+$/.test(name)) continue;
-
-    // Detect quantity from patterns like "2x", "2 pcs", "qty:2"
-    let quantity = 1;
-    const qtyMatch = line.match(/^(\d+)\s*[xX]\s*/);
-    if (qtyMatch) {
-      quantity = parseInt(qtyMatch[1]) || 1;
-    }
 
     // Capitalize item name properly
     name = name
@@ -89,7 +108,7 @@ export function parseOCRText(rawText: string): BillItem[] {
     });
   }
 
-  // Deduplicate items with very similar names (OCR noise)
+  // Deduplicate items with very similar names and identical prices (OCR noise)
   const deduplicated: BillItem[] = [];
   for (const item of items) {
     const duplicate = deduplicated.find(

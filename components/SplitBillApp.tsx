@@ -2,12 +2,13 @@
 
 import React, { useCallback, useReducer } from "react";
 import { BillState, BillItem, Participant, Assignment, TaxConfig } from "@/types/bill";
-import { OCRService } from "@/services/OCRService";
+import { parseReceiptWithGemini } from "@/app/actions/ocr";
 import { UploadZone } from "@/components/UploadZone";
 import { OCRProgress } from "@/components/OCRProgress";
 import { BillEditor } from "@/components/BillEditor";
 import { ParticipantPanel } from "@/components/ParticipantPanel";
 import { SummaryPanel } from "@/components/SummaryPanel";
+import { generateId } from "@/lib/utils";
 import { Receipt, Sparkles } from "lucide-react";
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -65,24 +66,47 @@ export function SplitBillApp() {
     const url = URL.createObjectURL(file);
     dispatch({ type: "SET_IMAGE", payload: url });
     dispatch({ type: "SET_OCR_PROCESSING", payload: true });
-    dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 0, status: "Memulai..." } });
+    dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 10, status: "Membaca gambar..." } });
 
     try {
-      const result = await OCRService.extractFromFile(file, ({ status, progress }) => {
-        dispatch({ type: "SET_OCR_PROGRESS", payload: { progress, status } });
+      // Convert file to base64 for Gemini
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Strip the data:image/...;base64, prefix
+          resolve(result.split(",")[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
       });
-      dispatch({ type: "SET_ITEMS", payload: result.items });
+
+      dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 40, status: "AI sedang menganalisis struk..." } });
+
+      const parsed = await parseReceiptWithGemini(base64, file.type || "image/jpeg");
+
+      dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 90, status: "Memproses hasil..." } });
+
+      const items: BillItem[] = parsed.map((p) => ({
+        id: generateId(),
+        name: p.name,
+        price: p.price,
+        quantity: p.quantity,
+      }));
+
+      dispatch({ type: "SET_ITEMS", payload: items });
+      dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 100, status: `✅ ${items.length} item berhasil dibaca!` } });
     } catch (err) {
-      console.error("OCR Error:", err);
+      console.error("Gemini OCR Error:", err);
       dispatch({
         type: "SET_OCR_PROGRESS",
-        payload: { progress: 0, status: "Gagal membaca struk. Coba tambah item manual." },
+        payload: { progress: 0, status: "❌ Gagal membaca struk. Coba tambah item manual." },
       });
     } finally {
       dispatch({ type: "SET_OCR_PROCESSING", payload: false });
       setTimeout(() => {
         dispatch({ type: "SET_OCR_PROGRESS", payload: { progress: 0, status: "" } });
-      }, 4000);
+      }, 5000);
     }
   }, []);
 
@@ -106,7 +130,7 @@ export function SplitBillApp() {
             </div>
           </div>
           <span className="text-xs text-muted-foreground hidden sm:block">
-            Powered by Tesseract.js OCR · ind+eng
+            Powered by Gemini 1.5 Flash AI ✨
           </span>
         </div>
       </header>
@@ -140,7 +164,7 @@ export function SplitBillApp() {
 
             {!state.imagePreviewUrl && (
               <p className="text-xs text-muted-foreground text-center">
-                📸 Foto struk diproses otomatis dengan AI OCR (ind+eng)
+                📸 Foto struk dibaca otomatis oleh Google Gemini AI
               </p>
             )}
           </div>
@@ -197,7 +221,7 @@ export function SplitBillApp() {
       {/* ─── Footer ─── */}
       <footer className="mt-12 pb-8 text-center">
         <p className="text-xs text-muted-foreground">
-          SplitBill · OCR berjalan sepenuhnya di browser Anda 🔒 · Tidak ada data yang dikirim ke server
+          SplitBill · Didukung oleh Google Gemini 1.5 Flash AI ✨
         </p>
       </footer>
     </div>
